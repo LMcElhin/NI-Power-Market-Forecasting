@@ -5,16 +5,18 @@ from dataclasses import dataclass
 TARGET = "price_gbp_mwh"
 TIMESTAMP = "timestamp"
 
+
 REQUIRED_COLUMNS = {
     TIMESTAMP,
     TARGET,
     "demand_actual_mw",
-    "demand_forecast_mw",
     "wind_actual_mw",
-    "wind_forecast_mw",
 }
 
+
 OPTIONAL_COLUMNS = {
+    "demand_forecast_mw",
+    "wind_forecast_mw",
     "temperature_actual_c",
     "temperature_forecast_c",
     "interconnector_flow_mw",
