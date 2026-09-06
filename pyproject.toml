@@ -1,0 +1,53 @@
+[build-system]
+requires = ["hatchling>=1.25"]
+build-backend = "hatchling.build"
+
+[project]
+name = "ni-power-market-forecasting"
+version = "0.1.0"
+description = "Short-term Northern Ireland power-market forecasting and walk-forward backtesting"
+readme = "README.md"
+requires-python = ">=3.11"
+dependencies = [
+  "joblib>=1.4",
+  "matplotlib>=3.8",
+  "numpy>=1.26",
+  "openpyxl>=3.1",
+  "pandas>=2.2",
+  "pydantic>=2.8",
+  "PyYAML>=6.0",
+  "requests>=2.32",
+  "scikit-learn>=1.5",
+  "typer>=0.12",
+]
+
+[project.optional-dependencies]
+dev = [
+  "pytest>=8.0",
+  "ruff>=0.6",
+]
+torch = [
+  "torch>=2.4",
+]
+
+[project.scripts]
+ni-power = "ni_power_forecast.cli:app"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/ni_power_forecast"]
+
+[tool.pytest.ini_options]
+pythonpath = ["src"]
+testpaths = ["tests"]
+addopts = "-q"
+
+[tool.ruff]
+line-length = 100
+target-version = "py311"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "B", "UP"]
+ignore = ["E501"]
+
+[tool.ruff.lint.per-file-ignores]
+"src/ni_power_forecast/cli.py" = ["B008"]

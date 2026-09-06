@@ -1,0 +1,5 @@
+model: hist_gradient_boosting
+n_splits: 5
+min_train_days: 90
+forecast_horizon_hours: 24
+random_seed: 42

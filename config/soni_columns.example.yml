@@ -1,0 +1,8 @@
+# Optional explicit mapping for a SONI System Data spreadsheet if automatic
+# column detection does not match a newly published workbook.
+timestamp: DateTime
+demand_actual_mw: System Demand
+demand_forecast_mw: System Demand Forecast
+wind_actual_mw: Wind Generation
+wind_forecast_mw: Wind Forecast
+interconnector_flow_mw: Interconnection
