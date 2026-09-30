@@ -70,8 +70,12 @@ def backtest(
         exists=True,
         dir_okay=False,
     ),
-    output_dir: Path = typer.Option(Path("outputs/backtest")),
-    model: str = typer.Option("hist_gradient_boosting"),
+    output_dir: Path = typer.Option(
+        Path("outputs/backtest")
+    ),
+    model: str = typer.Option(
+        "hist_gradient_boosting"
+    ),
     n_splits: int = typer.Option(
         5,
         min=2,
@@ -87,16 +91,28 @@ def backtest(
             "24h persistence."
         ),
     ),
+    derived_forecasts: bool = typer.Option(
+        True,
+        "--derived-forecasts/--no-derived-forecasts",
+        help=(
+            "Include derived SEMO forecast features "
+            "(net demand and wind share) when both "
+            "demand and wind forecasts are available."
+        ),
+    ),
 ):
     """Run expanding-window backtests against 24h persistence."""
 
-    df = load_market_frame(input)
+    df = load_market_frame(
+        input
+    )
 
     predictions, metrics = walk_forward_backtest(
         df,
         model_name=model,
         n_splits=n_splits,
         target_mode=target_mode,
+        include_derived_forecasts=derived_forecasts,
     )
 
     save_backtest_outputs(
@@ -112,8 +128,9 @@ def backtest(
         )
     )
 
-    typer.echo(f"Saved outputs to {output_dir}")
-
+    typer.echo(
+        f"Saved outputs to {output_dir}"
+    )
 
 @app.command("merge-data")
 def merge_data(

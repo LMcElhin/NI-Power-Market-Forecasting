@@ -5,16 +5,10 @@ from pathlib import Path
 
 import matplotlib.pyplot as plt
 import pandas as pd
-from sklearn.model_selection import (
-    TimeSeriesSplit,
-)
+from sklearn.model_selection import TimeSeriesSplit
 
-from ni_power_forecast.features import (
-    build_features,
-)
-from ni_power_forecast.metrics import (
-    regression_metrics,
-)
+from ni_power_forecast.features import build_features
+from ni_power_forecast.metrics import regression_metrics
 from ni_power_forecast.models import (
     make_model,
     persistence_prediction,
@@ -24,10 +18,14 @@ from ni_power_forecast.schema import TIMESTAMP
 
 def _clean_xy(
     df: pd.DataFrame,
+    include_derived_forecasts: bool = True,
 ):
     """Build features and retain only fully usable observations."""
 
-    X, y = build_features(df)
+    X, y = build_features(
+        df,
+        include_derived_forecasts=include_derived_forecasts,
+    )
 
     mask = X.notna().all(axis=1) & y.notna()
 
@@ -40,42 +38,76 @@ def _clean_xy(
 
 def walk_forward_backtest(
     df: pd.DataFrame,
-    model_name: str = ("hist_gradient_boosting"),
+    model_name: str = "hist_gradient_boosting",
     n_splits: int = 5,
     random_seed: int = 42,
     target_mode: str = "level",
+    include_derived_forecasts: bool = True,
 ) -> tuple[
     pd.DataFrame,
     dict[str, dict[str, float]],
 ]:
     """Run expanding-window chronological backtesting.
 
-    target_mode="level"
-        Predict absolute electricity price directly.
+    Parameters
+    ----------
+    df:
+        Hourly modelling dataframe.
 
-    target_mode="residual"
-        Predict the correction to the 24-hour persistence forecast:
+    model_name:
+        Model identifier passed to make_model().
+
+    n_splits:
+        Number of chronological TimeSeriesSplit folds.
+
+    random_seed:
+        Base random seed.
+
+    target_mode:
+        ``"level"`` predicts absolute electricity price directly.
+
+        ``"residual"`` predicts the correction to the 24-hour
+        persistence forecast:
 
             price[t] - price[t - 24]
 
-        Final forecast is:
+        The final forecast is then:
 
             price[t - 24] + predicted correction
+
+    include_derived_forecasts:
+        If True, build_features() automatically creates and uses
+        net-demand and wind-share forecast features when both target-hour
+        demand and wind forecasts are available.
+
+        If False, only the raw target-hour demand and wind forecasts are
+        used. This is useful for SEMO feature-ablation experiments.
     """
 
-    X, y, aligned = _clean_xy(df)
+    X, y, aligned = _clean_xy(
+        df,
+        include_derived_forecasts=include_derived_forecasts,
+    )
 
     if len(X) < 24 * 30:
-        raise ValueError("Need at least ~30 days of usable hourly observations for backtesting")
+        raise ValueError(
+            "Need at least ~30 days of usable hourly observations "
+            "for backtesting"
+        )
+
     target_mode = target_mode.lower()
 
     if target_mode not in {
         "level",
         "residual",
     }:
-        raise ValueError("target_mode must be 'level' or 'residual'")
+        raise ValueError(
+            "target_mode must be 'level' or 'residual'"
+        )
 
-    splitter = TimeSeriesSplit(n_splits=n_splits)
+    splitter = TimeSeriesSplit(
+        n_splits=n_splits
+    )
 
     pieces: list[pd.DataFrame] = []
 
@@ -88,7 +120,9 @@ def walk_forward_backtest(
     ):
         model = make_model(
             model_name,
-            random_seed=(random_seed + fold),
+            random_seed=(
+                random_seed + fold
+            ),
         )
 
         X_train = X.iloc[train_idx]
@@ -97,24 +131,36 @@ def walk_forward_backtest(
         y_train = y.iloc[train_idx]
         y_test = y.iloc[test_idx]
 
-        train_baseline = persistence_prediction(X_train)
+        train_baseline = persistence_prediction(
+            X_train
+        )
 
-        test_baseline = persistence_prediction(X_test)
+        test_baseline = persistence_prediction(
+            X_test
+        )
 
         if target_mode == "residual":
             # Rather than learning the entire price level,
             # learn only the deviation from yesterday's
             # corresponding hourly price.
-            residual_target = y_train.to_numpy(dtype=float) - train_baseline
+            residual_target = (
+                y_train.to_numpy(dtype=float)
+                - train_baseline
+            )
 
             model.fit(
                 X_train,
                 residual_target,
             )
 
-            residual_prediction = model.predict(X_test)
+            residual_prediction = model.predict(
+                X_test
+            )
 
-            prediction = test_baseline + residual_prediction
+            prediction = (
+                test_baseline
+                + residual_prediction
+            )
 
         else:
             model.fit(
@@ -122,7 +168,9 @@ def walk_forward_backtest(
                 y_train,
             )
 
-            prediction = model.predict(X_test)
+            prediction = model.predict(
+                X_test
+            )
 
         fold_df = pd.DataFrame(
             {
@@ -132,14 +180,18 @@ def walk_forward_backtest(
                         TIMESTAMP,
                     ].to_numpy()
                 ),
-                "actual": (y_test.to_numpy()),
+                "actual": (
+                    y_test.to_numpy()
+                ),
                 "prediction": prediction,
-                "baseline": (test_baseline),
+                "baseline": test_baseline,
                 "fold": fold,
             }
         )
 
-        pieces.append(fold_df)
+        pieces.append(
+            fold_df
+        )
 
     predictions = pd.concat(
         pieces,
@@ -157,17 +209,31 @@ def walk_forward_backtest(
         predictions["baseline"],
     )
 
-    model_metrics["mae_improvement_vs_baseline_pct"] = float(
-        100 * (baseline_metrics["mae"] - model_metrics["mae"]) / baseline_metrics["mae"]
+    model_metrics[
+        "mae_improvement_vs_baseline_pct"
+    ] = float(
+        100
+        * (
+            baseline_metrics["mae"]
+            - model_metrics["mae"]
+        )
+        / baseline_metrics["mae"]
     )
 
-    model_metrics["rmse_improvement_vs_baseline_pct"] = float(
-        100 * (baseline_metrics["rmse"] - model_metrics["rmse"]) / baseline_metrics["rmse"]
+    model_metrics[
+        "rmse_improvement_vs_baseline_pct"
+    ] = float(
+        100
+        * (
+            baseline_metrics["rmse"]
+            - model_metrics["rmse"]
+        )
+        / baseline_metrics["rmse"]
     )
 
     return predictions, {
         "model": model_metrics,
-        "persistence_24h": (baseline_metrics),
+        "persistence_24h": baseline_metrics,
     }
 
 
@@ -181,7 +247,9 @@ def save_backtest_outputs(
 ) -> Path:
     """Save backtest predictions, metrics, and diagnostic plot."""
 
-    out = Path(output_dir)
+    out = Path(
+        output_dir
+    )
 
     out.mkdir(
         parents=True,
@@ -193,7 +261,9 @@ def save_backtest_outputs(
         index=False,
     )
 
-    (out / "metrics.json").write_text(
+    (
+        out / "metrics.json"
+    ).write_text(
         json.dumps(
             metrics,
             indent=2,
@@ -203,32 +273,47 @@ def save_backtest_outputs(
 
     # Show the final week of the backtest for a quick visual
     # comparison between actual, ML, and persistence.
-    tail = predictions.tail(24 * 7)
+    tail = predictions.tail(
+        24 * 7
+    )
 
-    fig, ax = plt.subplots(figsize=(11, 4.8))
+    fig, ax = plt.subplots(
+        figsize=(11, 4.8)
+    )
 
     ax.plot(
-        pd.to_datetime(tail["timestamp"]),
+        pd.to_datetime(
+            tail["timestamp"]
+        ),
         tail["actual"],
         label="Actual",
     )
 
     ax.plot(
-        pd.to_datetime(tail["timestamp"]),
+        pd.to_datetime(
+            tail["timestamp"]
+        ),
         tail["prediction"],
         label="ML forecast",
     )
 
     ax.plot(
-        pd.to_datetime(tail["timestamp"]),
+        pd.to_datetime(
+            tail["timestamp"]
+        ),
         tail["baseline"],
         label="24h persistence",
         alpha=0.7,
     )
 
-    ax.set_title("Northern Ireland power-price forecast — final backtest week")
+    ax.set_title(
+        "Northern Ireland power-price forecast — "
+        "final backtest week"
+    )
 
-    ax.set_ylabel("GBP/MWh")
+    ax.set_ylabel(
+        "GBP/MWh"
+    )
 
     ax.legend()
 
@@ -241,6 +326,8 @@ def save_backtest_outputs(
         dpi=160,
     )
 
-    plt.close(fig)
+    plt.close(
+        fig
+    )
 
     return out
