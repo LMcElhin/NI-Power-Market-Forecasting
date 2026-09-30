@@ -11,7 +11,6 @@ from zoneinfo import ZoneInfo
 import pandas as pd
 import requests
 
-
 STATIC_REPORTS_URL = (
     "https://reports.sem-o.com/api/v1/documents/static-reports"
 )
