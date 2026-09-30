@@ -65,9 +65,8 @@ def walk_forward_backtest(
 
     X, y, aligned = _clean_xy(df)
 
-    if len(X) < 24 * 60:
-        raise ValueError("Need at least ~60 days of usable hourly observations for backtesting")
-
+    if len(X) < 24 * 30:
+        raise ValueError("Need at least ~30 days of usable hourly observations for backtesting")
     target_mode = target_mode.lower()
 
     if target_mode not in {
