@@ -21,6 +21,9 @@ from ni_power_forecast.data.semo import (
     inspect_document,
     parse_market_result_file,
 )
+from ni_power_forecast.data.semo_forecasts import (
+    fetch_point_in_time_forecasts,
+)
 from ni_power_forecast.data.soni import (
     normalise_soni_excel,
 )
@@ -124,19 +127,32 @@ def merge_data(
         exists=True,
         dir_okay=False,
     ),
-    output: Path = typer.Option(Path("data/processed/model_table.csv")),
+    forecasts: Path | None = typer.Option(
+        None,
+        exists=True,
+        dir_okay=False,
+        help="Optional point-in-time SEMO forecast CSV.",
+    ),
+    output: Path = typer.Option(
+        Path("data/processed/model_table.csv")
+    ),
 ):
-    """Merge hourly prices with normalised SONI system data."""
+    """Merge prices, SONI system data and optional SEMO forecasts."""
 
     import pandas as pd
 
     price_df = pd.read_csv(prices)
-
     system_df = pd.read_csv(system)
+
+    forecast_df = None
+
+    if forecasts is not None:
+        forecast_df = pd.read_csv(forecasts)
 
     frame = merge_price_and_system(
         price_df,
         system_df,
+        forecast_df=forecast_df,
     )
 
     output.parent.mkdir(
@@ -149,8 +165,9 @@ def merge_data(
         index=False,
     )
 
-    typer.echo(f"Wrote {len(frame)} merged observations to {output}")
-
+    typer.echo(
+        f"Wrote {len(frame)} merged observations to {output}"
+    )
 
 @app.command("train")
 def train(
@@ -280,6 +297,54 @@ def fetch_semo_prices(
     )
 
     typer.echo(f"Wrote {len(frame)} price observations to {output}")
+
+
+@app.command("fetch-semo-forecasts")
+def fetch_semo_forecasts(
+    date_from: str = typer.Option(
+        ...,
+        help=("First SEM trading-day label, YYYY-MM-DD"),
+    ),
+    date_to: str = typer.Option(
+        ...,
+        help=("Final SEM trading-day label, YYYY-MM-DD"),
+    ),
+    output: Path = typer.Option(Path("data/processed/semo_forecasts.csv")),
+    raw_dir: Path = typer.Option(
+        Path("data/raw/semo_forecasts"),
+        help=("Directory used to cache native SEMO forecast XML."),
+    ),
+):
+    """Fetch leakage-safe NI demand and wind forecasts."""
+
+    frame = fetch_point_in_time_forecasts(
+        date_from,
+        date_to,
+        raw_dir=raw_dir,
+    )
+
+    output.parent.mkdir(
+        parents=True,
+        exist_ok=True,
+    )
+
+    frame.to_csv(
+        output,
+        index=False,
+    )
+
+    typer.echo(f"Wrote {len(frame)} forecast observations to {output}")
+
+    typer.echo(f"Forecast range: {frame['timestamp'].min()} -> {frame['timestamp'].max()}")
+
+    if "trade_date" in frame.columns:
+        typer.echo(f"Trading-day range: {frame['trade_date'].min()} -> {frame['trade_date'].max()}")
+
+    if "load_forecast_published_at" in frame.columns:
+        typer.echo(f"Latest load forecast used: {frame['load_forecast_published_at'].max()}")
+
+    if "wind_forecast_published_at" in frame.columns:
+        typer.echo(f"Latest wind forecast used: {frame['wind_forecast_published_at'].max()}")
 
 
 @app.command("parse-semo-prices")
