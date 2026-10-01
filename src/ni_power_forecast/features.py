@@ -5,27 +5,56 @@ import pandas as pd
 
 from ni_power_forecast.schema import TARGET, TIMESTAMP, FeatureSpec
 
+DERIVED_FORECAST_MODES = {
+    "none",
+    "net",
+    "share",
+    "both",
+}
+
 
 def build_features(
     df: pd.DataFrame,
     spec: FeatureSpec | None = None,
-    include_derived_forecasts: bool = True,
+    derived_forecasts: str = "both",
 ) -> tuple[pd.DataFrame, pd.Series]:
     """Build leakage-safe features for 24-hour-ahead price forecasting.
 
     Realised prices and system variables are lagged by at least the
     forecast horizon.
 
-    Genuine target-period forecast variables are included directly when
-    present.
+    Genuine target-period demand and wind forecasts are included directly
+    when present.
 
-    By default, net-demand and wind-share forecast features are derived
-    automatically when both demand and wind forecasts are available.
-    This can be disabled for feature-ablation experiments with
-    ``include_derived_forecasts=False``.
+    Derived target-period forecast features can be controlled with
+    ``derived_forecasts``:
+
+        "none"
+            Use raw demand and wind forecasts only.
+
+        "net"
+            Also use forecast net demand:
+            demand_forecast_mw - wind_forecast_mw.
+
+        "share"
+            Also use forecast wind share:
+            wind_forecast_mw / demand_forecast_mw.
+
+        "both"
+            Use both derived forecast features.
+
+    The default preserves the original behaviour.
     """
 
     spec = spec or FeatureSpec()
+
+    derived_forecasts = derived_forecasts.lower()
+
+    if derived_forecasts not in DERIVED_FORECAST_MODES:
+        raise ValueError(
+            "derived_forecasts must be one of: "
+            "none, net, share, both"
+        )
 
     out = (
         df.copy()
@@ -55,6 +84,7 @@ def build_features(
     out["hour_sin"] = np.sin(
         2 * np.pi * hour / 24
     )
+
     out["hour_cos"] = np.cos(
         2 * np.pi * hour / 24
     )
@@ -62,6 +92,7 @@ def build_features(
     out["dow_sin"] = np.sin(
         2 * np.pi * dow / 7
     )
+
     out["dow_cos"] = np.cos(
         2 * np.pi * dow / 7
     )
@@ -69,6 +100,7 @@ def build_features(
     out["month_sin"] = np.sin(
         2 * np.pi * (month - 1) / 12
     )
+
     out["month_cos"] = np.cos(
         2 * np.pi * (month - 1) / 12
     )
@@ -111,33 +143,37 @@ def build_features(
             "wind_forecast_mw"
         )
 
-    # Preserve the original behaviour by default.
-    #
-    # For ablation experiments this can be disabled so that the model
-    # receives only the raw demand and wind forecasts.
     if (
-        include_derived_forecasts
-        and has_demand_forecast
+        has_demand_forecast
         and has_wind_forecast
     ):
-        out["net_demand_forecast_mw"] = (
-            out["demand_forecast_mw"]
-            - out["wind_forecast_mw"]
-        )
-
-        out["wind_share_forecast"] = (
-            out["wind_forecast_mw"]
-            / out["demand_forecast_mw"].clip(
-                lower=1
+        if derived_forecasts in {
+            "net",
+            "both",
+        }:
+            out["net_demand_forecast_mw"] = (
+                out["demand_forecast_mw"]
+                - out["wind_forecast_mw"]
             )
-        )
 
-        feature_cols.extend(
-            [
-                "net_demand_forecast_mw",
-                "wind_share_forecast",
-            ]
-        )
+            feature_cols.append(
+                "net_demand_forecast_mw"
+            )
+
+        if derived_forecasts in {
+            "share",
+            "both",
+        }:
+            out["wind_share_forecast"] = (
+                out["wind_forecast_mw"]
+                / out[
+                    "demand_forecast_mw"
+                ].clip(lower=1)
+            )
+
+            feature_cols.append(
+                "wind_share_forecast"
+            )
 
     if "temperature_forecast_c" in out.columns:
         feature_cols.append(
@@ -156,15 +192,18 @@ def build_features(
 
         name = f"price_lag_{lag}"
 
-        out[name] = out[TARGET].shift(lag)
+        out[name] = out[TARGET].shift(
+            lag
+        )
 
-        feature_cols.append(name)
+        feature_cols.append(
+            name
+        )
 
     if {
         "price_lag_24",
         "price_lag_48",
     }.issubset(out.columns):
-
         out["price_change_24_48"] = (
             out["price_lag_24"]
             - out["price_lag_48"]
@@ -178,7 +217,6 @@ def build_features(
         "price_lag_24",
         "price_lag_168",
     }.issubset(out.columns):
-
         out["price_change_24_168"] = (
             out["price_lag_24"]
             - out["price_lag_168"]
@@ -195,7 +233,9 @@ def build_features(
     system_variables = {
         "demand_actual_mw": "demand_actual",
         "wind_actual_mw": "wind_actual",
-        "interconnector_flow_mw": "interconnector_flow",
+        "interconnector_flow_mw": (
+            "interconnector_flow"
+        ),
     }
 
     for lag in spec.actual_lags:
@@ -208,7 +248,6 @@ def build_features(
             raw_name,
             feature_prefix,
         ) in system_variables.items():
-
             if raw_name not in out.columns:
                 continue
 
@@ -227,6 +266,7 @@ def build_features(
         demand_name = (
             f"demand_actual_lag_{lag}"
         )
+
         wind_name = (
             f"wind_actual_lag_{lag}"
         )
@@ -296,7 +336,6 @@ def build_features(
         "net_demand_lag_24",
         "net_demand_lag_48",
     }.issubset(out.columns):
-
         out["net_demand_change_24_48"] = (
             out["net_demand_lag_24"]
             - out["net_demand_lag_48"]
@@ -322,12 +361,15 @@ def build_features(
         mean_name = (
             f"price_roll_mean_{window}"
         )
+
         std_name = (
             f"price_roll_std_{window}"
         )
+
         min_name = (
             f"price_roll_min_{window}"
         )
+
         max_name = (
             f"price_roll_max_{window}"
         )
@@ -350,7 +392,6 @@ def build_features(
         "price_lag_24",
         "price_roll_mean_168",
     }.issubset(out.columns):
-
         out["price_vs_weekly_mean"] = (
             out["price_lag_24"]
             - out["price_roll_mean_168"]
@@ -361,7 +402,7 @@ def build_features(
         )
 
     # ------------------------------------------------------------------
-    # Final feature matrix / target
+    # Final matrix
     # ------------------------------------------------------------------
 
     X = out[

@@ -18,21 +18,30 @@ from ni_power_forecast.schema import TIMESTAMP
 
 def _clean_xy(
     df: pd.DataFrame,
-    include_derived_forecasts: bool = True,
+    derived_forecasts: str = "both",
 ):
-    """Build features and retain only fully usable observations."""
+    """Build features and retain fully usable observations."""
 
     X, y = build_features(
         df,
-        include_derived_forecasts=include_derived_forecasts,
+        derived_forecasts=derived_forecasts,
     )
 
-    mask = X.notna().all(axis=1) & y.notna()
+    mask = (
+        X.notna().all(axis=1)
+        & y.notna()
+    )
 
     return (
-        X.loc[mask].reset_index(drop=True),
-        y.loc[mask].reset_index(drop=True),
-        df.loc[mask].reset_index(drop=True),
+        X.loc[mask].reset_index(
+            drop=True
+        ),
+        y.loc[mask].reset_index(
+            drop=True
+        ),
+        df.loc[mask].reset_index(
+            drop=True
+        ),
     )
 
 
@@ -42,57 +51,22 @@ def walk_forward_backtest(
     n_splits: int = 5,
     random_seed: int = 42,
     target_mode: str = "level",
-    include_derived_forecasts: bool = True,
+    derived_forecasts: str = "both",
 ) -> tuple[
     pd.DataFrame,
     dict[str, dict[str, float]],
 ]:
-    """Run expanding-window chronological backtesting.
-
-    Parameters
-    ----------
-    df:
-        Hourly modelling dataframe.
-
-    model_name:
-        Model identifier passed to make_model().
-
-    n_splits:
-        Number of chronological TimeSeriesSplit folds.
-
-    random_seed:
-        Base random seed.
-
-    target_mode:
-        ``"level"`` predicts absolute electricity price directly.
-
-        ``"residual"`` predicts the correction to the 24-hour
-        persistence forecast:
-
-            price[t] - price[t - 24]
-
-        The final forecast is then:
-
-            price[t - 24] + predicted correction
-
-    include_derived_forecasts:
-        If True, build_features() automatically creates and uses
-        net-demand and wind-share forecast features when both target-hour
-        demand and wind forecasts are available.
-
-        If False, only the raw target-hour demand and wind forecasts are
-        used. This is useful for SEMO feature-ablation experiments.
-    """
+    """Run expanding-window chronological backtesting."""
 
     X, y, aligned = _clean_xy(
         df,
-        include_derived_forecasts=include_derived_forecasts,
+        derived_forecasts=derived_forecasts,
     )
 
     if len(X) < 24 * 30:
         raise ValueError(
-            "Need at least ~30 days of usable hourly observations "
-            "for backtesting"
+            "Need at least ~30 days of usable hourly "
+            "observations for backtesting"
         )
 
     target_mode = target_mode.lower()
@@ -125,26 +99,39 @@ def walk_forward_backtest(
             ),
         )
 
-        X_train = X.iloc[train_idx]
-        X_test = X.iloc[test_idx]
+        X_train = X.iloc[
+            train_idx
+        ]
 
-        y_train = y.iloc[train_idx]
-        y_test = y.iloc[test_idx]
+        X_test = X.iloc[
+            test_idx
+        ]
 
-        train_baseline = persistence_prediction(
-            X_train
+        y_train = y.iloc[
+            train_idx
+        ]
+
+        y_test = y.iloc[
+            test_idx
+        ]
+
+        train_baseline = (
+            persistence_prediction(
+                X_train
+            )
         )
 
-        test_baseline = persistence_prediction(
-            X_test
+        test_baseline = (
+            persistence_prediction(
+                X_test
+            )
         )
 
         if target_mode == "residual":
-            # Rather than learning the entire price level,
-            # learn only the deviation from yesterday's
-            # corresponding hourly price.
             residual_target = (
-                y_train.to_numpy(dtype=float)
+                y_train.to_numpy(
+                    dtype=float
+                )
                 - train_baseline
             )
 
@@ -153,8 +140,10 @@ def walk_forward_backtest(
                 residual_target,
             )
 
-            residual_prediction = model.predict(
-                X_test
+            residual_prediction = (
+                model.predict(
+                    X_test
+                )
             )
 
             prediction = (
@@ -183,8 +172,12 @@ def walk_forward_backtest(
                 "actual": (
                     y_test.to_numpy()
                 ),
-                "prediction": prediction,
-                "baseline": test_baseline,
+                "prediction": (
+                    prediction
+                ),
+                "baseline": (
+                    test_baseline
+                ),
                 "fold": fold,
             }
         )
@@ -233,7 +226,9 @@ def walk_forward_backtest(
 
     return predictions, {
         "model": model_metrics,
-        "persistence_24h": baseline_metrics,
+        "persistence_24h": (
+            baseline_metrics
+        ),
     }
 
 
@@ -245,7 +240,7 @@ def save_backtest_outputs(
     ],
     output_dir: str | Path,
 ) -> Path:
-    """Save backtest predictions, metrics, and diagnostic plot."""
+    """Save predictions, metrics and diagnostic plot."""
 
     out = Path(
         output_dir
@@ -271,8 +266,6 @@ def save_backtest_outputs(
         encoding="utf-8",
     )
 
-    # Show the final week of the backtest for a quick visual
-    # comparison between actual, ML, and persistence.
     tail = predictions.tail(
         24 * 7
     )

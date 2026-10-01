@@ -84,20 +84,15 @@ def backtest(
     target_mode: str = typer.Option(
         "level",
         help=(
-            "Prediction target. "
-            "'level' predicts price "
-            "directly; 'residual' "
-            "predicts corrections to "
-            "24h persistence."
+            "Prediction target: "
+            "'level' or 'residual'."
         ),
     ),
-    derived_forecasts: bool = typer.Option(
-        True,
-        "--derived-forecasts/--no-derived-forecasts",
+    derived_forecasts: str = typer.Option(
+        "both",
         help=(
-            "Include derived SEMO forecast features "
-            "(net demand and wind share) when both "
-            "demand and wind forecasts are available."
+            "Derived SEMO forecast features: "
+            "none, net, share, or both."
         ),
     ),
 ):
@@ -107,12 +102,16 @@ def backtest(
         input
     )
 
-    predictions, metrics = walk_forward_backtest(
-        df,
-        model_name=model,
-        n_splits=n_splits,
-        target_mode=target_mode,
-        include_derived_forecasts=derived_forecasts,
+    predictions, metrics = (
+        walk_forward_backtest(
+            df,
+            model_name=model,
+            n_splits=n_splits,
+            target_mode=target_mode,
+            derived_forecasts=(
+                derived_forecasts
+            ),
+        )
     )
 
     save_backtest_outputs(
@@ -131,7 +130,7 @@ def backtest(
     typer.echo(
         f"Saved outputs to {output_dir}"
     )
-
+    
 @app.command("merge-data")
 def merge_data(
     prices: Path = typer.Option(

@@ -98,3 +98,70 @@ def test_target_forecasts_are_used_when_available():
     assert "net_demand_forecast_mw" in X
 
     assert "wind_share_forecast" in X
+
+
+def test_derived_forecasts_can_be_disabled():
+    df = generate_demo_data(
+        days=45,
+        seed=7,
+    )
+
+    X, _ = build_features(
+        df,
+        derived_forecasts="none",
+    )
+
+    assert "demand_forecast_mw" in X
+    assert "wind_forecast_mw" in X
+
+    assert "net_demand_forecast_mw" not in X
+    assert "wind_share_forecast" not in X
+
+
+def test_net_demand_forecast_can_be_selected():
+    df = generate_demo_data(
+        days=45,
+        seed=7,
+    )
+
+    X, _ = build_features(
+        df,
+        derived_forecasts="net",
+    )
+
+    assert "net_demand_forecast_mw" in X
+    assert "wind_share_forecast" not in X
+
+
+def test_wind_share_forecast_can_be_selected():
+    df = generate_demo_data(
+        days=45,
+        seed=7,
+    )
+
+    X, _ = build_features(
+        df,
+        derived_forecasts="share",
+    )
+
+    assert "net_demand_forecast_mw" not in X
+    assert "wind_share_forecast" in X
+
+
+def test_invalid_derived_forecast_mode_rejected():
+    df = generate_demo_data(
+        days=45,
+        seed=7,
+    )
+
+    try:
+        build_features(
+            df,
+            derived_forecasts="banana",
+        )
+    except ValueError:
+        return
+
+    raise AssertionError(
+        "Expected invalid derived forecast mode to fail"
+    )
