@@ -30,11 +30,27 @@ from ni_power_forecast.data.soni import (
 from ni_power_forecast.forecast import (
     forecast_missing_targets,
 )
+from ni_power_forecast.importance import (
+    cross_validated_permutation_importance,
+    load_hgb_parameters,
+    save_importance_outputs,
+)
 from ni_power_forecast.merge import (
     merge_price_and_system,
 )
+from ni_power_forecast.probabilistic import (
+    load_hgb_parameters as load_quantile_hgb_parameters,
+)
+from ni_power_forecast.probabilistic import (
+    probabilistic_backtest,
+    save_probabilistic_outputs,
+)
 from ni_power_forecast.train import (
     train_model,
+)
+from ni_power_forecast.tune_hgb import (
+    save_hgb_tuning_outputs,
+    tune_hist_gradient_boosting,
 )
 
 app = typer.Typer(
@@ -62,7 +78,170 @@ def generate_demo(
 
     typer.echo(f"Wrote demo data to {path}")
 
+@app.command("feature-importance")
+def feature_importance(
+    input: Path = typer.Option(
+        ...,
+        exists=True,
+        dir_okay=False,
+    ),
+    output_dir: Path = typer.Option(
+        Path(
+            "outputs/feature_importance"
+        )
+    ),
+    params_file: Path | None = typer.Option(
+        None,
+        exists=True,
+        dir_okay=False,
+        help=(
+            "Optional best_hgb.json file. "
+            "Uses tuned default parameters "
+            "when omitted."
+        ),
+    ),
+    n_splits: int = typer.Option(
+        3,
+        min=2,
+        max=10,
+    ),
+    n_repeats: int = typer.Option(
+        10,
+        min=1,
+        max=100,
+    ),
+    derived_forecasts: str = typer.Option(
+        "both",
+        help=(
+            "Derived SEMO forecast features: "
+            "none, net, share, or both."
+        ),
+    ),
+):
+    """Calculate chronological permutation feature importance."""
 
+    df = load_market_frame(
+        input
+    )
+
+    params = None
+
+    if params_file is not None:
+        params = load_hgb_parameters(
+            params_file
+        )
+
+    summary, raw = (
+        cross_validated_permutation_importance(
+            df,
+            params=params,
+            n_splits=n_splits,
+            n_repeats=n_repeats,
+            derived_forecasts=(
+                derived_forecasts
+            ),
+        )
+    )
+
+    save_importance_outputs(
+        summary,
+        raw,
+        output_dir,
+    )
+
+    typer.echo(
+        ""
+    )
+
+    typer.echo(
+        "Top permutation features:"
+    )
+
+    typer.echo(
+        summary.head(
+            20
+        ).to_string(
+            index=False
+        )
+    )
+
+    typer.echo(
+        ""
+    )
+
+    typer.echo(
+        f"Saved importance outputs to "
+        f"{output_dir}"
+    )
+@app.command("quantile-backtest")
+def quantile_backtest(
+    input: Path = typer.Option(
+        ...,
+        exists=True,
+        dir_okay=False,
+    ),
+    output_dir: Path = typer.Option(
+        Path(
+            "outputs/quantile_backtest"
+        )
+    ),
+    params_file: Path | None = typer.Option(
+        None,
+        exists=True,
+        dir_okay=False,
+    ),
+    n_splits: int = typer.Option(
+        3,
+        min=2,
+        max=10,
+    ),
+    derived_forecasts: str = typer.Option(
+        "both",
+    ),
+):
+    """Backtest P10/P50/P90 price forecasts."""
+
+    df = load_market_frame(
+        input
+    )
+
+    params = None
+
+    if params_file is not None:
+        params = (
+            load_quantile_hgb_parameters(
+                params_file
+            )
+        )
+
+    predictions, metrics = (
+        probabilistic_backtest(
+            df,
+            params=params,
+            n_splits=n_splits,
+            derived_forecasts=(
+                derived_forecasts
+            ),
+        )
+    )
+
+    save_probabilistic_outputs(
+        predictions,
+        metrics,
+        output_dir,
+    )
+
+    typer.echo(
+        json.dumps(
+            metrics,
+            indent=2,
+        )
+    )
+
+    typer.echo(
+        f"Saved outputs to {output_dir}"
+    )
+    
 @app.command("backtest")
 def backtest(
     input: Path = typer.Option(
@@ -130,7 +309,7 @@ def backtest(
     typer.echo(
         f"Saved outputs to {output_dir}"
     )
-    
+
 @app.command("merge-data")
 def merge_data(
     prices: Path = typer.Option(
@@ -278,6 +457,77 @@ def fetch_semo_raw(
 
     typer.echo(f"Downloaded {len(paths)} reports to {output_dir}")
 
+@app.command("tune-hgb")
+def tune_hgb(
+    input: Path = typer.Option(
+        ...,
+        exists=True,
+        dir_okay=False,
+    ),
+    output_dir: Path = typer.Option(
+        Path("outputs/hgb_tuning")
+    ),
+    n_splits: int = typer.Option(
+        3,
+        min=2,
+        max=10,
+    ),
+    target_mode: str = typer.Option(
+        "level",
+        help=(
+            "Prediction target: "
+            "'level' or 'residual'."
+        ),
+    ),
+    derived_forecasts: str = typer.Option(
+        "both",
+        help=(
+            "Derived SEMO forecast features: "
+            "none, net, share, or both."
+        ),
+    ),
+):
+    """Tune HistGradientBoosting with chronological CV."""
+
+    df = load_market_frame(
+        input
+    )
+
+    results = tune_hist_gradient_boosting(
+        df,
+        n_splits=n_splits,
+        target_mode=target_mode,
+        derived_forecasts=derived_forecasts,
+    )
+
+    save_hgb_tuning_outputs(
+        results,
+        output_dir,
+    )
+
+    typer.echo(
+        ""
+    )
+
+    typer.echo(
+        "Top HGB configurations:"
+    )
+
+    typer.echo(
+        results.head(
+            10
+        ).to_string(
+            index=False
+        )
+    )
+
+    typer.echo(
+        ""
+    )
+
+    typer.echo(
+        f"Saved tuning outputs to {output_dir}"
+    )
 
 @app.command("fetch-semo-prices")
 def fetch_semo_prices(
