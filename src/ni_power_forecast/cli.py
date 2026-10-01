@@ -39,9 +39,7 @@ from ni_power_forecast.merge import (
     merge_price_and_system,
 )
 from ni_power_forecast.probabilistic import (
-    load_hgb_parameters as load_quantile_hgb_parameters,
-)
-from ni_power_forecast.probabilistic import (
+    load_quantile_parameters,
     probabilistic_backtest,
     save_probabilistic_outputs,
 )
@@ -51,6 +49,10 @@ from ni_power_forecast.train import (
 from ni_power_forecast.tune_hgb import (
     save_hgb_tuning_outputs,
     tune_hist_gradient_boosting,
+)
+from ni_power_forecast.tune_quantiles import (
+    save_quantile_tuning_outputs,
+    tune_quantile_models,
 )
 
 app = typer.Typer(
@@ -198,8 +200,17 @@ def quantile_backtest(
     derived_forecasts: str = typer.Option(
         "both",
     ),
+    calibration_fraction: float = typer.Option(
+        0.20,
+        min=0.05,
+        max=0.40,
+        help=(
+            "Trailing fraction of each training "
+            "fold reserved for conformal calibration."
+        ),
+    ),
 ):
-    """Backtest P10/P50/P90 price forecasts."""
+    """Backtest tuned and calibrated P10/P50/P90 forecasts."""
 
     df = load_market_frame(
         input
@@ -209,7 +220,7 @@ def quantile_backtest(
 
     if params_file is not None:
         params = (
-            load_quantile_hgb_parameters(
+            load_quantile_parameters(
                 params_file
             )
         )
@@ -221,6 +232,9 @@ def quantile_backtest(
             n_splits=n_splits,
             derived_forecasts=(
                 derived_forecasts
+            ),
+            calibration_fraction=(
+                calibration_fraction
             ),
         )
     )
@@ -242,6 +256,73 @@ def quantile_backtest(
         f"Saved outputs to {output_dir}"
     )
     
+@app.command("tune-quantiles")
+def tune_quantiles(
+    input: Path = typer.Option(
+        ...,
+        exists=True,
+        dir_okay=False,
+    ),
+    output_dir: Path = typer.Option(
+        Path(
+            "outputs/quantile_tuning"
+        )
+    ),
+    n_splits: int = typer.Option(
+        3,
+        min=2,
+        max=10,
+    ),
+    derived_forecasts: str = typer.Option(
+        "both",
+    ),
+):
+    """Tune P10/P50/P90 HGB models using pinball loss."""
+
+    df = load_market_frame(
+        input
+    )
+
+    results, payload = (
+        tune_quantile_models(
+            df,
+            n_splits=n_splits,
+            derived_forecasts=(
+                derived_forecasts
+            ),
+        )
+    )
+
+    save_quantile_tuning_outputs(
+        results,
+        payload,
+        output_dir,
+    )
+
+    typer.echo(
+        ""
+    )
+
+    typer.echo(
+        "Best quantile configurations:"
+    )
+
+    typer.echo(
+        results[
+            results["rank"] <= 3
+        ].to_string(
+            index=False
+        )
+    )
+
+    typer.echo(
+        ""
+    )
+
+    typer.echo(
+        f"Saved outputs to {output_dir}"
+    )
+
 @app.command("backtest")
 def backtest(
     input: Path = typer.Option(

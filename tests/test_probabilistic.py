@@ -6,7 +6,7 @@ from ni_power_forecast.probabilistic import (
 )
 
 
-def test_probabilistic_backtest_returns_quantiles():
+def test_probabilistic_backtest_is_monotonic_and_calibrated():
     df = generate_demo_data(
         days=45,
         seed=19,
@@ -29,26 +29,63 @@ def test_probabilistic_backtest_returns_quantiles():
     )
 
     assert {
+        "q10_raw",
+        "q50_raw",
+        "q90_raw",
         "q10",
         "q50",
         "q90",
+        "q10_calibrated",
+        "q90_calibrated",
     }.issubset(
         predictions.columns
     )
 
-    assert "median_mae" in metrics
+    assert (
+        predictions["q10"]
+        <= predictions["q50"]
+    ).all()
 
     assert (
-        "interval_80_coverage"
-        in metrics
+        predictions["q50"]
+        <= predictions["q90"]
+    ).all()
+
+    assert (
+        predictions[
+            "q10_calibrated"
+        ]
+        <= predictions["q10"]
+    ).all()
+
+    assert (
+        predictions[
+            "q90_calibrated"
+        ]
+        >= predictions["q90"]
+    ).all()
+
+    assert (
+        metrics[
+            "quantile_crossing_rate_after_rearrangement"
+        ]
+        == 0.0
     )
 
     assert (
-        "interval_80_mean_width"
-        in metrics
+        metrics[
+            "interval_80_mean_width_calibrated"
+        ]
+        >= metrics[
+            "interval_80_mean_width_raw"
+        ]
     )
 
     assert (
-        "quantile_crossing_rate"
-        in metrics
+        metrics[
+            "interval_80_coverage_calibrated"
+        ]
+        >= metrics[
+            "interval_80_coverage_raw"
+        ]
     )
